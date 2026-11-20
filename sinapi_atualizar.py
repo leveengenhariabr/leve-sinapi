@@ -146,10 +146,10 @@ def processar_entrada():
         os.remove(z); feito = True
     return feito
 
-def atualizar_indice_fonte(pasta, uf, ref):
+def atualizar_indice_fonte(pasta, uf, ref, regimes=('SD', 'CD')):
     """índice das outras bases (GOINFRA, SICRO…): dados/<pasta>/<uf>/indice.json; só entra o mês com SD e CD prontos; guarda todos os meses"""
     d = os.path.join(DADOS, pasta, uf)
-    if not all(os.path.exists(os.path.join(d, f'{ref}-{r}.json')) for r in ('SD', 'CD')):
+    if not all(os.path.exists(os.path.join(d, f'{ref}-{r}.json')) for r in regimes):
         print('índice:', pasta, uf, ref, '- aguardando o outro regime'); return
     pi = os.path.join(d, 'indice.json')
     ind = json.load(open(pi, encoding='utf-8')) if os.path.exists(pi) else {'uf': uf, 'meses': []}
@@ -158,11 +158,33 @@ def atualizar_indice_fonte(pasta, uf, ref):
     with open(pi, 'w', encoding='utf-8') as f: json.dump(ind, f, ensure_ascii=False, indent=1)
     print('índice', pasta, uf + ':', [m['ref'] for m in ind['meses']])
 
+def processar_orse():
+    """ORSE (Sergipe): PDF do "Relatório de composições" + Excel de insumos e de serviços (o nome do Excel deve ter orse + insumos / servicos)"""
+    ent = os.path.join(RAIZ, 'entrada'); pdfs = glob.glob(os.path.join(ent, '*.pdf')) + glob.glob(os.path.join(ent, '*.PDF'))
+    if not pdfs: return False
+    import sinapi_gerar_orse as O
+    pdfs = [p for p in pdfs if O.eh_pdf_orse(p)]
+    if not pdfs: return False
+    ins = serv = None
+    for a in glob.glob(os.path.join(ent, '*.xls')) + glob.glob(os.path.join(ent, '*.xlsx')):
+        nome = os.path.basename(a).lower()
+        if 'orse' in nome and 'insumo' in nome: ins = a
+        elif 'orse' in nome and 'servi' in nome: serv = a
+    ref = O.gerar_orse(pdfs[0], ins, serv, DADOS)
+    atualizar_indice_fonte('orse', 'SE', ref, regimes=('SD',))
+    for a in [pdfs[0], ins, serv]:
+        if a and os.path.exists(a): os.remove(a)
+    return True
+
 def processar_planilhas():
     """GOINFRA (3 planilhas por regime: composições, materiais, mão de obra) e SICRO (relatórios do DNIT por estado/mês):
     os arquivos são reconhecidos pelo CONTEÚDO, não pelo nome. Só processa quando o conjunto está completo; o resto espera na pasta."""
+    feito_orse = False
+    try: feito_orse = processar_orse()
+    except Exception as e: print('ORSE falhou:', type(e).__name__, e)
     arqs = sorted(glob.glob(os.path.join(RAIZ, 'entrada', '*.xls')) + glob.glob(os.path.join(RAIZ, 'entrada', '*.xlsx')))
-    if not arqs: return False
+    arqs = [a for a in arqs if 'orse' not in os.path.basename(a).lower()]
+    if not arqs: return feito_orse
     import sinapi_gerar_goinfra as G, sinapi_gerar_sicro as S
     goi, sic = {}, {}
     for a in arqs:
@@ -185,7 +207,7 @@ def processar_planilhas():
         chave = (pu.group(1), f'{pu.group(3)}-{pu.group(2)}')
         grupo = sic.setdefault(chave, {'arquivos': []}); grupo['arquivos'].append(a)
         grupo['comp' if t == 'comp' else 'mat' if t == 'mat' else 'mo_an' if (t == 'mo_an' and not cd) else (t + '_' + ('cd' if cd else 'sd')) if t in ('eq', 'mo') else '_x'] = rows
-    feito = False
+    feito = feito_orse
     por_mes = {}
     for (ref, reg), g in goi.items():
         if all(k in g for k in ('comp', 'mat', 'mdo')):
