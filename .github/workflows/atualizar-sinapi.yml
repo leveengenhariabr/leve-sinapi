@@ -1,7 +1,7 @@
 name: Atualizar SINAPI
 on:
   schedule:
-    - cron: '30 11 10-25 * *'    # todo dia 10 a 25, 08:30 no horário de Brasília
+    - cron: '30 11 10-25 * *'    # todo dia 10 a 25, 08:30 no horário de Brasília (a Caixa publica o mês anterior nesse período)
   workflow_dispatch:
     inputs:
       uf:
@@ -14,7 +14,9 @@ on:
         default: ''
   push:
     paths:
-      - 'entrada/*.zip'
+      - 'entrada/*.zip'          # enviar o zip da Caixa para a pasta "entrada" também dispara a atualização
+      - 'entrada/*.xls'          # planilhas da GOINFRA e do SICRO
+      - 'entrada/*.xlsx'
 permissions:
   contents: write
 jobs:
@@ -25,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-      - run: pip install openpyxl
+      - run: pip install openpyxl xlrd
       - name: Gerar os arquivos do SINAPI
         env:
           MES: ${{ github.event.inputs.mes }}
@@ -37,4 +39,4 @@ jobs:
           git config user.name "sinapi-bot"
           git config user.email "sinapi-bot@users.noreply.github.com"
           git add -A dados entrada
-          if git diff --cached --quiet; then echo "Nada novo."; else git commit -m "SINAPI atualizado"; git push; fi
+          if git diff --cached --quiet; then echo "Nada novo."; else git commit -m "SINAPI MT atualizado"; git push; fi
