@@ -203,13 +203,92 @@ def processar_planilhas():
         feito = True
     return feito
 
+# ---------- download automático da GOINFRA e do SICRO (se o site bloquear, vale o envio manual para "entrada") ----------
+import urllib.parse
+GOINFRA_PAGINAS = ['https://goias.gov.br/goinfra/tabela-de-composicao114/', 'https://goias.gov.br/goinfra/custo-referencial-de-materiais120/',
+                   'https://goias.gov.br/goinfra/custo-referencial-de-mao-de-obra-121/']
+SICRO_ESTADOS = {'MT': 'mato-grosso', 'GO': 'goias'}
+SICRO_BASE = 'https://www.gov.br/dnit/pt-br/assuntos/planejamento-e-pesquisa/custos-referenciais/sistemas-de-custos/sicro/relatorios/relatorios-sicro/centro-oeste'
+SICRO_MESES = {1: 'janeiro', 4: 'abril', 7: 'julho', 10: 'outubro'}
+
+def _get(url):
+    req = urllib.request.Request(urllib.parse.quote(url, safe=":/%?=&"), headers=UA)
+    with _abridor.open(req, timeout=180) as r: return r.read()
+
+def baixar_goinfra():
+    """acha nas páginas da GOINFRA as planilhas (.xls) da tabela Obras Civis mais recente (pastas T###_S e T###_C) e salva em entrada/"""
+    dest = os.path.join(RAIZ, 'entrada'); os.makedirs(dest, exist_ok=True)
+    pasta_est = os.path.join(DADOS, 'goinfra', 'GO'); os.makedirs(pasta_est, exist_ok=True)
+    pe = os.path.join(pasta_est, 'baixados.json')
+    ja = json.load(open(pe)) if os.path.exists(pe) else []
+    links = set()
+    for pag in GOINFRA_PAGINAS:
+        try: html = _get(pag).decode('utf-8', 'replace')
+        except Exception as e: print('GOINFRA: não abriu', pag, '-', e); continue
+        for m in re.findall(r'https?://cdn\.goinfra\.go\.gov\.br/[^"\'<>]+?\.xls', html): links.add(urllib.parse.unquote(m))
+    pastas = {}
+    for l in links:
+        m = re.search(r'/Obras Civis/(T(\d+)_([SC]))/', l)
+        if m: pastas.setdefault(int(m.group(2)), {}).setdefault(m.group(3), []).append(l)
+    # a tabela mais recente tem uma pasta S e uma C; os números ficam lado a lado (ex.: T348_C e T349_S)
+    todas = sorted(pastas)
+    if not todas: print('GOINFRA: nenhum link .xls encontrado (site mudou ou bloqueou). Envie as planilhas para a pasta entrada.'); return False
+    alvo = [n for n in todas[-2:]]
+    if all(str(n) in ja for n in alvo): print('GOINFRA: já baixado', alvo); return False
+    baixou = 0
+    for n in alvo:
+        for reg, lista in pastas[n].items():
+            for l in lista:
+                nome = f'GOINFRA_T{n}_{reg}_' + re.sub(r'[^A-Za-z0-9._-]+', '_', os.path.basename(l))
+                try:
+                    dados = _get(l)
+                    if dados[:4] in (b'<!DO', b'<htm', b'<HTM'): raise ValueError('veio uma página em vez da planilha')
+                    open(os.path.join(dest, nome), 'wb').write(dados); baixou += 1; print('GOINFRA baixado:', nome, len(dados))
+                except Exception as e: print('GOINFRA: falhou', l, '-', e)
+    if baixou: json.dump(sorted(set(ja) | {str(n) for n in alvo}), open(pe, 'w'))
+    return baixou > 0
+
+def baixar_sicro(hoje=None):
+    """SICRO sai em jan/abr/jul/out por estado: tenta o trimestre mais recente (e o anterior) de MT e GO; guarda o .7z, abre e salva as planilhas em entrada/"""
+    hoje = hoje or datetime.date.today(); dest = os.path.join(RAIZ, 'entrada'); os.makedirs(dest, exist_ok=True)
+    cand = []; a, m = hoje.year, hoje.month
+    while len(cand) < 2:
+        mm = max(k for k in SICRO_MESES if k <= m) if m >= 1 and any(k <= m for k in SICRO_MESES) else None
+        if mm is None: a, m = a - 1, 12; continue
+        cand.append((a, mm)); m = mm - 1
+        if m < 1: a, m = a - 1, 12
+    feito = False
+    for uf, est in SICRO_ESTADOS.items():
+        for a, mm in cand:
+            ref = f'{a}-{mm:02d}'
+            if os.path.exists(os.path.join(DADOS, 'sicro', uf, f'{ref}-SD.json')): print('SICRO já existe:', uf, ref); break
+            url = f"{SICRO_BASE}/{est}/{a}/{SICRO_MESES[mm]}/{uf.lower()}-{mm:02d}-{a}.7z"
+            try:
+                dados = _get(url)
+                if dados[:2] != b'7z': raise ValueError('não é um arquivo .7z')
+            except Exception as e: print('SICRO: não consegui', uf, ref, '-', e); continue
+            try:
+                import py7zr, tempfile
+                with tempfile.TemporaryDirectory() as t:
+                    pz = os.path.join(t, 'x.7z'); open(pz, 'wb').write(dados)
+                    with py7zr.SevenZipFile(pz) as z: z.extractall(os.path.join(t, 'x'))
+                    for raiz, _, arqs in os.walk(os.path.join(t, 'x')):
+                        for f in arqs:
+                            if f.lower().endswith('.xlsx'): shutil.copy(os.path.join(raiz, f), os.path.join(dest, f if re.match(r'^[A-Z]{2}[_ -]\d{2}-\d{4}', f) else f'{uf}_{mm:02d}-{a}_' + f))
+                print('SICRO baixado:', uf, ref); feito = True; break
+            except Exception as e: print('SICRO: falhou ao abrir o .7z', uf, ref, '-', e)
+    return feito
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--mes'); ap.add_argument('--uf', default=UF_PADRAO); a = ap.parse_args()
     uf = a.uf.upper()
     if uf not in UFS: sys.exit('UF inválida: ' + uf)
     os.makedirs(os.path.join(DADOS, uf), exist_ok=True)
     feito = processar_entrada()
-    feito = processar_planilhas() or feito
+    for baixar in (baixar_goinfra, baixar_sicro):          # GOINFRA e SICRO: tenta baixar sozinho; falhou, não derruba o resto
+        try: baixar()
+        except Exception as e: print('download automático falhou:', baixar.__name__, '-', e)
+    processar_planilhas()
     hoje = datetime.date.today()
     def meses_atras(n):
         for k in range(1, n + 1):
