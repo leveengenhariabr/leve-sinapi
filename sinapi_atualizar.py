@@ -146,12 +146,70 @@ def processar_entrada():
         os.remove(z); feito = True
     return feito
 
+def atualizar_indice_fonte(pasta, uf, ref):
+    """índice das outras bases (GOINFRA, SICRO…): dados/<pasta>/<uf>/indice.json; só entra o mês com SD e CD prontos; guarda todos os meses"""
+    d = os.path.join(DADOS, pasta, uf)
+    if not all(os.path.exists(os.path.join(d, f'{ref}-{r}.json')) for r in ('SD', 'CD')):
+        print('índice:', pasta, uf, ref, '- aguardando o outro regime'); return
+    pi = os.path.join(d, 'indice.json')
+    ind = json.load(open(pi, encoding='utf-8')) if os.path.exists(pi) else {'uf': uf, 'meses': []}
+    refs = {m['ref'] for m in ind['meses']} | {ref}
+    ind = {'uf': uf, 'atualizado': datetime.date.today().isoformat(), 'meses': [{'ref': r} for r in sorted(refs, reverse=True)]}
+    with open(pi, 'w', encoding='utf-8') as f: json.dump(ind, f, ensure_ascii=False, indent=1)
+    print('índice', pasta, uf + ':', [m['ref'] for m in ind['meses']])
+
+def processar_planilhas():
+    """GOINFRA (3 planilhas por regime: composições, materiais, mão de obra) e SICRO (relatórios do DNIT por estado/mês):
+    os arquivos são reconhecidos pelo CONTEÚDO, não pelo nome. Só processa quando o conjunto está completo; o resto espera na pasta."""
+    arqs = sorted(glob.glob(os.path.join(RAIZ, 'entrada', '*.xls')) + glob.glob(os.path.join(RAIZ, 'entrada', '*.xlsx')))
+    if not arqs: return False
+    import sinapi_gerar_goinfra as G, sinapi_gerar_sicro as S
+    goi, sic = {}, {}
+    for a in arqs:
+        nome = os.path.basename(a)
+        try:
+            info = G.identificar(G.linhas(a))
+            if info['tipo'] and info['ref'] and info['regime']:
+                goi.setdefault((info['ref'], info['regime']), {})[info['tipo']] = a; continue
+        except Exception as e: print('não é GOINFRA:', nome, '-', type(e).__name__)
+        try:
+            rows = S._linhas(a); t = S.identificar(rows)
+        except Exception as e: print('ignorado (não consegui ler):', nome, e); continue
+        pu = re.match(r'^([A-Z]{2})[_-](\d{2})-(\d{4})', nome)
+        if not t:
+            if pu and 'relat_rio' in nome.lower(): sic.setdefault((pu.group(1), f'{pu.group(3)}-{pu.group(2)}'), {'arquivos': []})['arquivos'].append(a)   # relatório do SICRO que não usamos: sai junto
+            else: print('ignorado (formato desconhecido):', nome)
+            continue
+        if not pu: print('SICRO sem “UF_MM-AAAA” no nome, ignorado:', nome); continue
+        cd = 'com_desonera' in nome.lower()
+        chave = (pu.group(1), f'{pu.group(3)}-{pu.group(2)}')
+        grupo = sic.setdefault(chave, {'arquivos': []}); grupo['arquivos'].append(a)
+        grupo['comp' if t == 'comp' else 'mat' if t == 'mat' else 'mo_an' if (t == 'mo_an' and not cd) else (t + '_' + ('cd' if cd else 'sd')) if t in ('eq', 'mo') else '_x'] = rows
+    feito = False
+    por_mes = {}
+    for (ref, reg), g in goi.items():
+        if all(k in g for k in ('comp', 'mat', 'mdo')):
+            r, rg = G.gerar_goinfra(g, DADOS); por_mes.setdefault(r, []).append(rg)
+            for k in g.values(): os.remove(k)
+            feito = True
+        else: print('GOINFRA', ref, reg, 'incompleto, faltam:', [k for k in ('comp', 'mat', 'mdo') if k not in g])
+    for r in por_mes: atualizar_indice_fonte('goinfra', 'GO', r)
+    for (uf, ref), g in sic.items():
+        falta = [k for k in ('comp', 'mat', 'eq_sd', 'eq_cd', 'mo_sd', 'mo_cd') if k not in g]
+        if falta: print('SICRO', uf, ref, 'incompleto, faltam:', falta); continue
+        r, _ = S.gerar_sicro(g, DADOS, uf=uf)
+        atualizar_indice_fonte('sicro', uf, r)
+        for a in g['arquivos']: os.remove(a)
+        feito = True
+    return feito
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--mes'); ap.add_argument('--uf', default=UF_PADRAO); a = ap.parse_args()
     uf = a.uf.upper()
     if uf not in UFS: sys.exit('UF inválida: ' + uf)
     os.makedirs(os.path.join(DADOS, uf), exist_ok=True)
     feito = processar_entrada()
+    feito = processar_planilhas() or feito
     hoje = datetime.date.today()
     def meses_atras(n):
         for k in range(1, n + 1):
