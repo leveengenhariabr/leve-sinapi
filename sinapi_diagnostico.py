@@ -11,13 +11,31 @@ ab = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiej
 class _Sem(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **k): return None
 dados = None
+import http.client, urllib.parse
+def passo_a_passo(u):
+    jar = {}
+    for n in range(8):
+        pu = urllib.parse.urlparse(u)
+        c = http.client.HTTPSConnection(pu.netloc, timeout=60)
+        h = dict(UA); h['Accept'] = 'text/html,application/zip,*/*'; h['Accept-Language'] = 'pt-BR,pt;q=0.9'
+        if jar: h['Cookie'] = '; '.join(f'{k}={v}' for k, v in jar.items())
+        c.request('GET', pu.path + (('?' + pu.query) if pu.query else ''), headers=h)
+        r = c.getresponse(); corpo = r.read(300)
+        print(' passo', n, r.status, r.getheader('Content-Type'), 'Location=', r.getheader('Location'), 'Set-Cookie=', [v[:60] for k, v in r.getheaders() if k.lower() == 'set-cookie'], 'corpo=', corpo[:80])
+        for k, v in r.getheaders():
+            if k.lower() == 'set-cookie':
+                kv = v.split(';')[0]; a, _, b = kv.partition('='); jar[a] = b
+        if r.status in (301, 302, 303, 307, 308) and r.getheader('Location'):
+            u = urllib.parse.urljoin(u, r.getheader('Location')); continue
+        return r.status
+passo_a_passo(f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}_Retificacao01.zip')
 for suf in ('', '_Retificacao01', '_Retificacao02'):
     u = f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}{suf}.zip'
     try:
         urllib.request.build_opener(_Sem).open(urllib.request.Request(u, headers=UA), timeout=60)
         print('sem redirect, ok:', u)
     except urllib.error.HTTPError as e:
-        print('TESTE', e.code, 'Location=', e.headers.get('Location'), '|', u)
+        print('TESTE', e.code, 'Location=', e.headers.get('Location'), '|', u); print('CABECALHOS:', dict(e.headers))
     except Exception as e:
         print('TESTE', type(e).__name__, u)
     for t in range(2):
