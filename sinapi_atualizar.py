@@ -5,7 +5,7 @@ Uso:
   python3 sinapi_atualizar.py --mes 2025-03    -> baixa e guarda um mês específico (fica "fixo": a limpeza dos 12 meses não apaga)
   python3 sinapi_atualizar.py --mes 12meses   -> traz de uma vez os últimos 12 meses (pula os que já existem)
 Também processa qualquer zip da pasta entrada/ (nome com AAAA-MM, ex.: SINAPI-2026-10-formato-xlsx.zip), sem precisar de download."""
-import argparse, datetime, glob, io, json, os, re, shutil, sys, urllib.request, urllib.error, zipfile
+import argparse, datetime, glob, http.cookiejar, io, json, os, re, shutil, sys, time, urllib.request, urllib.error, zipfile
 from sinapi_gerar import gerar
 
 UF = 'MT'
@@ -16,23 +16,32 @@ UA = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, 
 
 def urls_candidatas(ref):
     a, m = ref.split('-')
-    nomes = [f'SINAPI-{a}-{m}-formato-xlsx.zip']
+    nomes = [f'SINAPI-{a}-{m}-formato-xlsx.zip', f'SINAPI-{a}-{m}-formato-xlsx_Retificacao01.zip', f'SINAPI-{a}-{m}-formato-xlsx_Retificacao02.zip', f'SINAPI_{a}_{m}_formato_xlsx.zip']
     bases = ['https://www.caixa.gov.br/Downloads/sinapi-relatorios-mensais/', 'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-mt/']
-    return [b + n for b in bases for n in nomes]
+    return [b + n for b in bases[:1] for n in nomes] + [bases[1] + nomes[0]]
+
+_cookies = http.cookiejar.CookieJar()
+_abridor = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cookies))
 
 def baixar(ref):
+    # a Caixa às vezes responde com redirecionamento (302) até o cookie ser aceito ou quando recebe pedidos seguidos: tenta de novo com pausa
+    try: _abridor.open(urllib.request.Request('https://www.caixa.gov.br/poder-publico/modernizacao-gestao/sinapi/Paginas/default.aspx', headers=UA), timeout=60).read(2000)
+    except Exception: pass
     for u in urls_candidatas(ref):
-        try:
-            req = urllib.request.Request(u, headers=UA)
-            with urllib.request.urlopen(req, timeout=180) as r:
-                dados = r.read()
-            if zipfile.is_zipfile(io.BytesIO(dados)):
-                print('baixado:', u, len(dados), 'bytes'); return dados
-            print('resposta não é zip:', u)
-        except urllib.error.HTTPError as e:
-            print('falhou', e.code, u)
-        except Exception as e:
-            print('falhou', type(e).__name__, u)
+        for tentativa in range(3):
+            try:
+                req = urllib.request.Request(u, headers={**UA, 'Referer': 'https://www.caixa.gov.br/site/paginas/downloads.aspx'})
+                with _abridor.open(req, timeout=180) as r:
+                    dados = r.read()
+                if zipfile.is_zipfile(io.BytesIO(dados)):
+                    print('baixado:', u, len(dados), 'bytes'); return dados
+                print('resposta não é zip:', u); break
+            except urllib.error.HTTPError as e:
+                print('falhou', e.code, u, f'(tentativa {tentativa + 1})')
+                if e.code == 404: break
+                time.sleep(6 * (tentativa + 1))
+            except Exception as e:
+                print('falhou', type(e).__name__, u); time.sleep(4)
     return None
 
 def processar_zip(dados, ref, fixo):
@@ -91,6 +100,7 @@ def main():
             ref = f'{a_}-{m_:02d}'
             if mes_ja_existe(ref): print('já existe:', ref); continue
             d = baixar(ref)
+            time.sleep(3)
             if d: processar_zip(d, ref, fixo=False)
             else:
                 falhas += 1; print('NÃO consegui baixar', ref)
