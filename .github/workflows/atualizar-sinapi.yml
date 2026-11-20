@@ -1,7 +1,7 @@
 name: Atualizar SINAPI
 on:
   schedule:
-    - cron: '30 11 10-25 * *'→ Runs at 11:30, between day 10 and 25 of the month    # todo dia 10 a 25, 08:30 no horário de Brasília (a Caixa publica o mês anterior nesse período)
+    - cron: '30 11 10-25 * *'    # todo dia 10 a 25, 08:30 no horário de Brasília (a Caixa publica o mês anterior nesse período)
   workflow_dispatch:
     inputs:
       uf:
@@ -34,3 +34,9 @@ jobs:
           UF: ${{ github.event.inputs.uf }}
         run: |
           python sinapi_atualizar.py --uf "${UF:-MT}" ${MES:+--mes "$MES"}
+      - name: Guardar no repositório
+        run: |
+          git config user.name "sinapi-bot"
+          git config user.email "sinapi-bot@users.noreply.github.com"
+          git add -A dados entrada
+          if git diff --cached --quiet; then echo "Nada novo."; else git commit -m "SINAPI MT atualizado"; git push; fi
