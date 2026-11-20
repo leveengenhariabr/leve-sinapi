@@ -248,11 +248,12 @@ def baixar_goinfra():
     if baixou: json.dump(sorted(set(ja) | {str(n) for n in alvo}), open(pe, 'w'))
     return baixou > 0
 
-def baixar_sicro(hoje=None):
+def baixar_sicro(hoje=None, so_mes=None):
     """SICRO sai em jan/abr/jul/out por estado: tenta o trimestre mais recente (e o anterior) de MT e GO; guarda o .7z, abre e salva as planilhas em entrada/"""
     hoje = hoje or datetime.date.today(); dest = os.path.join(RAIZ, 'entrada'); os.makedirs(dest, exist_ok=True)
     cand = []; a, m = hoje.year, hoje.month
-    while len(cand) < 2:
+    if so_mes: cand = [so_mes]
+    while len(cand) < 2 and not so_mes:
         mm = max(k for k in SICRO_MESES if k <= m) if m >= 1 and any(k <= m for k in SICRO_MESES) else None
         if mm is None: a, m = a - 1, 12; continue
         cand.append((a, mm)); m = mm - 1
@@ -285,9 +286,11 @@ def main():
     if uf not in UFS: sys.exit('UF inválida: ' + uf)
     os.makedirs(os.path.join(DADOS, uf), exist_ok=True)
     feito = processar_entrada()
-    for baixar in (baixar_goinfra, baixar_sicro):          # GOINFRA e SICRO: tenta baixar sozinho; falhou, não derruba o resto
+    forcado = None                                         # --mes 2026-04 também pede ao SICRO aquele trimestre (jan/abr/jul/out)
+    if a.mes and re.fullmatch(r'\d{4}-(01|04|07|10)', a.mes): forcado = (int(a.mes[:4]), int(a.mes[5:]))
+    for baixar in (baixar_goinfra, lambda: baixar_sicro(so_mes=forcado)):          # GOINFRA e SICRO: tenta baixar sozinho; falhou, não derruba o resto
         try: baixar()
-        except Exception as e: print('download automático falhou:', baixar.__name__, '-', e)
+        except Exception as e: print('download automático falhou:', e)
     processar_planilhas()
     hoje = datetime.date.today()
     def meses_atras(n):
