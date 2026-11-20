@@ -28,6 +28,19 @@ def passo_a_passo(u):
         if r.status in (301, 302, 303, 307, 308) and r.getheader('Location'):
             u = urllib.parse.urljoin(u, r.getheader('Location')); continue
         return r.status
+import subprocess
+def com_curl(u):
+    for extra in ([], ['--http1.1'], ['--http2']):
+        cmd = ['curl', '-sS', '-L', '--max-redirs', '6', '--compressed', '-o', '/tmp/t.zip', '-w', '%{http_code} %{size_download} %{num_redirects} %{url_effective}', '-c', '/tmp/jar.txt', '-b', '/tmp/jar.txt',
+               '-A', UA['User-Agent'], '-e', 'https://www.caixa.gov.br/site/paginas/downloads.aspx',
+               '-H', 'Accept: text/html,application/xhtml+xml,application/zip,*/*;q=0.8', '-H', 'Accept-Language: pt-BR,pt;q=0.9,en;q=0.8',
+               '-H', 'Upgrade-Insecure-Requests: 1', '-H', 'Sec-Fetch-Dest: document', '-H', 'Sec-Fetch-Mode: navigate', '-H', 'Sec-Fetch-Site: same-origin'] + extra + [u]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=200)
+        print('CURL', extra, 'saida=', r.stdout[-200:], 'erro=', r.stderr[-150:])
+        if r.stdout.startswith('200') and zipfile.is_zipfile('/tmp/t.zip'): return open('/tmp/t.zip', 'rb').read()
+    return None
+_z = com_curl(f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}_Retificacao01.zip')
+print('CURL RESULTADO:', 'ZIP OK' if _z else 'sem zip')
 passo_a_passo(f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}_Retificacao01.zip')
 for suf in ('', '_Retificacao01', '_Retificacao02'):
     u = f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}{suf}.zip'
