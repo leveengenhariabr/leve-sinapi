@@ -5,17 +5,29 @@ import openpyxl
 UF = sys.argv[1] if len(sys.argv) > 1 else 'MT'
 REF = sys.argv[2] if len(sys.argv) > 2 else '202412'
 REG = sys.argv[3] if len(sys.argv) > 3 else 'NaoDesonerado'
+SUF = sys.argv[4] if len(sys.argv) > 4 else ''
 UA = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36'}
 ab = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-nome = f'SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}.zip'
-u = f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/{nome}'
+class _Sem(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k): return None
 dados = None
-for t in range(3):
+for suf in ('', '_Retificacao01', '_Retificacao02'):
+    u = f'https://www.caixa.gov.br/Downloads/sinapi-a-partir-jul-2009-{UF.lower()}/SINAPI_ref_Insumos_Composicoes_{UF}_{REF}_{REG}{suf}.zip'
     try:
-        with ab.open(urllib.request.Request(u, headers=UA), timeout=180) as r: dados = r.read()
-        break
+        urllib.request.build_opener(_Sem).open(urllib.request.Request(u, headers=UA), timeout=60)
+        print('sem redirect, ok:', u)
+    except urllib.error.HTTPError as e:
+        print('TESTE', e.code, 'Location=', e.headers.get('Location'), '|', u)
     except Exception as e:
-        print('falhou', type(e).__name__, getattr(e, 'code', ''), u); time.sleep(5)
+        print('TESTE', type(e).__name__, u)
+    for t in range(2):
+        try:
+            with ab.open(urllib.request.Request(u, headers=UA), timeout=180) as r: dados = r.read()
+            break
+        except Exception as e:
+            print('falhou', type(e).__name__, getattr(e, 'code', ''), u); time.sleep(4)
+    if dados and zipfile.is_zipfile(io.BytesIO(dados)): break
+    dados = None
 if not dados or not zipfile.is_zipfile(io.BytesIO(dados)): sys.exit('sem zip: ' + u)
 print('baixado', u, len(dados), 'bytes')
 z = zipfile.ZipFile(io.BytesIO(dados))
