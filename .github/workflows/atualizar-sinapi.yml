@@ -17,6 +17,7 @@ on:
       - 'entrada/*.zip'          # enviar o zip da Caixa para a pasta "entrada" também dispara a atualização
       - 'entrada/*.xls'          # planilhas da GOINFRA e do SICRO
       - 'entrada/*.xlsx'
+      - 'entrada/*.pdf'          # relatório de composições do ORSE
 permissions:
   contents: write
 jobs:
