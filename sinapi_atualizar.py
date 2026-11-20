@@ -211,9 +211,28 @@ SICRO_ESTADOS = {'MT': 'mato-grosso', 'GO': 'goias'}
 SICRO_BASE = 'https://www.gov.br/dnit/pt-br/assuntos/planejamento-e-pesquisa/custos-referenciais/sistemas-de-custos/sicro/relatorios/relatorios-sicro/centro-oeste'
 SICRO_MESES = {1: 'janeiro', 4: 'abril', 7: 'julho', 10: 'outubro'}
 
-def _get(url):
-    req = urllib.request.Request(urllib.parse.quote(url, safe=":/%?=&"), headers=UA)
-    with _abridor.open(req, timeout=180) as r: return r.read()
+def _get(url, tentativas=40):
+    """baixa o arquivo inteiro; se a conexão cair no meio (IncompleteRead), continua de onde parou (Range)"""
+    import http.client
+    u = urllib.parse.quote(url, safe=":/%?=&"); buf = b''; total = None
+    for _ in range(tentativas):
+        h = dict(UA)
+        if buf: h['Range'] = 'bytes=%d-' % len(buf)
+        try:
+            with _abridor.open(urllib.request.Request(u, headers=h), timeout=180) as r:
+                if buf and getattr(r, 'status', 200) != 206: buf = b''   # servidor ignorou o Range: recomeça
+                if total is None:
+                    cl = r.headers.get('Content-Length'); total = int(cl) + len(buf) if cl else None
+                try:
+                    while True:
+                        c = r.read(1 << 16)
+                        if not c: break
+                        buf += c
+                except http.client.IncompleteRead as e: buf += e.partial
+        except (OSError, http.client.HTTPException) as e:
+            if not buf: raise
+        if total is None or len(buf) >= total: return buf
+    raise IOError('download incompleto: %d de %s bytes' % (len(buf), total))
 
 def baixar_goinfra():
     """acha nas páginas da GOINFRA as planilhas (.xls) da tabela Obras Civis mais recente (pastas T###_S e T###_C) e salva em entrada/"""
