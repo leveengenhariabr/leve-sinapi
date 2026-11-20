@@ -3,6 +3,7 @@
 Uso:
   python3 sinapi_atualizar.py                  -> baixa o mês mais recente publicado pela Caixa (tenta o mês passado e o retrasado)
   python3 sinapi_atualizar.py --mes 2025-03    -> baixa e guarda um mês específico (fica "fixo": a limpeza dos 12 meses não apaga)
+  python3 sinapi_atualizar.py --mes 12meses   -> traz de uma vez os últimos 12 meses (pula os que já existem)
 Também processa qualquer zip da pasta entrada/ (nome com AAAA-MM, ex.: SINAPI-2026-10-formato-xlsx.zip), sem precisar de download."""
 import argparse, datetime, glob, io, json, os, re, shutil, sys, urllib.request, urllib.error, zipfile
 from sinapi_gerar import gerar
@@ -82,6 +83,20 @@ def main():
         print('processando envio manual:', z)
         processar_zip(open(z, 'rb').read(), ref, fixo=bool(a.mes) or ref < prim_recente())
         os.remove(z); feito = True
+    if a.mes == '12meses':                                 # traz os últimos 12 meses publicados de uma vez
+        hoje = datetime.date.today(); falhas = 0
+        for k in range(1, MANTER_MESES + 1):
+            a_, m_ = hoje.year, hoje.month - k
+            while m_ < 1: m_ += 12; a_ -= 1
+            ref = f'{a_}-{m_:02d}'
+            if mes_ja_existe(ref): print('já existe:', ref); continue
+            d = baixar(ref)
+            if d: processar_zip(d, ref, fixo=False)
+            else:
+                falhas += 1; print('NÃO consegui baixar', ref)
+                if falhas >= 2 and not glob.glob(os.path.join(DADOS, UF, '*.json')): break
+        if falhas: print(f'{falhas} mês(es) não baixaram. Baixe o zip no site da Caixa e envie para a pasta "entrada".')
+        return
     if a.mes:
         if not re.fullmatch(r'\d{4}-\d{2}', a.mes): sys.exit('Mês inválido. Use AAAA-MM, ex.: 2025-03')
         if not mes_ja_existe(a.mes) or not feito:
