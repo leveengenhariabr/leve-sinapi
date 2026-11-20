@@ -1,11 +1,15 @@
 name: Atualizar SINAPI
 on:
   schedule:
-    - cron: '30 11 10-25 * *'
+    - cron: '30 11 10-25 * *'    # todo dia 10 a 25, 08:30 no horário de Brasília
   workflow_dispatch:
     inputs:
+      uf:
+        description: 'Estado (sigla), ex.: MT, GO, SP'
+        required: false
+        default: 'MT'
       mes:
-        description: 'Mês a trazer (AAAA-MM), ex.: 2025-03. Deixe vazio para pegar o mais recente.'
+        description: 'Mês a trazer (AAAA-MM), ex.: 2025-03. Digite 12meses para os últimos 12. Vazio = o mais recente.'
         required: false
         default: ''
   push:
@@ -22,14 +26,15 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install openpyxl
-      - name: Gerar os arquivos do SINAPI (MT)
+      - name: Gerar os arquivos do SINAPI
         env:
           MES: ${{ github.event.inputs.mes }}
+          UF: ${{ github.event.inputs.uf }}
         run: |
-          if [ -n "$MES" ]; then python sinapi_atualizar.py --mes "$MES"; else python sinapi_atualizar.py; fi
+          python sinapi_atualizar.py --uf "${UF:-MT}" ${MES:+--mes "$MES"}
       - name: Guardar no repositório
         run: |
           git config user.name "sinapi-bot"
           git config user.email "sinapi-bot@users.noreply.github.com"
           git add -A dados entrada
-          if git diff --cached --quiet; then echo "Nada novo."; else git commit -m "SINAPI MT atualizado"; git push; fi
+          if git diff --cached --quiet; then echo "Nada novo."; else git commit -m "SINAPI atualizado"; git push; fi
