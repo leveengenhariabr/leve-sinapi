@@ -1,0 +1,21 @@
+name: Diagnostico SINAPI
+on:
+  workflow_dispatch:
+    inputs:
+      uf:
+        description: 'UF'
+        default: 'MT'
+      ref:
+        description: 'AAAAMM'
+        default: '202412'
+permissions:
+  contents: read
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install openpyxl
+      - run: python sinapi_diagnostico.py "${{ github.event.inputs.uf }}" "${{ github.event.inputs.ref }}" NaoDesonerado
