@@ -175,13 +175,13 @@ def processar_planilhas():
         try:
             rows = S._linhas(a); t = S.identificar(rows)
         except Exception as e: print('ignorado (não consegui ler):', nome, e); continue
-        pu = re.match(r'^([A-Z]{2})[_-](\d{2})-(\d{4})', nome)
+        pu = re.match(r'^([A-Z]{2})[_\s-](\d{2})-(\d{4})', nome)
         if not t:
-            if pu and 'relat_rio' in nome.lower(): sic.setdefault((pu.group(1), f'{pu.group(3)}-{pu.group(2)}'), {'arquivos': []})['arquivos'].append(a)   # relatório do SICRO que não usamos: sai junto
+            if pu and re.search(r'relat.rio', nome.lower()): sic.setdefault((pu.group(1), f'{pu.group(3)}-{pu.group(2)}'), {'arquivos': []})['arquivos'].append(a)   # relatório do SICRO que não usamos: sai junto
             else: print('ignorado (formato desconhecido):', nome)
             continue
         if not pu: print('SICRO sem “UF_MM-AAAA” no nome, ignorado:', nome); continue
-        cd = 'com_desonera' in nome.lower()
+        cd = bool(re.search(r'com[ _]desonera', nome.lower()))
         chave = (pu.group(1), f'{pu.group(3)}-{pu.group(2)}')
         grupo = sic.setdefault(chave, {'arquivos': []}); grupo['arquivos'].append(a)
         grupo['comp' if t == 'comp' else 'mat' if t == 'mat' else 'mo_an' if (t == 'mo_an' and not cd) else (t + '_' + ('cd' if cd else 'sd')) if t in ('eq', 'mo') else '_x'] = rows
