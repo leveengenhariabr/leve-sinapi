@@ -1,0 +1,1 @@
+# Coloque aqui, só se o download automatico falhar, o zip mensal da Caixa (ex.: SINAPI-2026-10-formato-xlsx.zip)
