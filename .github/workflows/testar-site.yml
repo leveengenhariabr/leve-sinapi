@@ -1,0 +1,40 @@
+name: Testar site (Firebase de verdade)
+# Abre o LeveApp publicado, entra com a conta de TESTE e confere: login, regras do Firestore,
+# todas as telas do menu (erro de script, permissão negada, largura) em Full HD e no celular.
+# Só lê; não cria nem altera obra, pedido ou entrega. Se falhar, o GitHub manda e-mail para o dono do repositório.
+on:
+  schedule:
+    - cron: '17 10 * * *'    # todo dia, 07:17 no horário de Brasília
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: testes-site
+    env:
+      LEVE_URL: ${{ vars.LEVE_URL }}
+      LEVE_LOGIN: ${{ secrets.LEVE_TESTE_LOGIN }}
+      LEVE_SENHA: ${{ secrets.LEVE_TESTE_SENHA }}
+      LEVE_APPCHECK_DEBUG: ${{ secrets.LEVE_APPCHECK_DEBUG }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Conferir segredos
+        run: |
+          if [ -z "$LEVE_LOGIN" ] || [ -z "$LEVE_SENHA" ]; then
+            echo "::error::Cadastre os segredos LEVE_TESTE_LOGIN e LEVE_TESTE_SENHA (Settings › Secrets and variables › Actions)."; exit 1
+          fi
+      - name: Instalar navegador de teste
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.49.1
+          npx playwright install --with-deps chromium
+      - name: Testar em Full HD
+        run: node site-real.mjs
+      - name: Testar no celular
+        if: always()
+        run: node site-real.mjs celular
